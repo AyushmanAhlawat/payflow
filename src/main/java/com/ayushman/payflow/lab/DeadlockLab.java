@@ -10,9 +10,13 @@ package com.ayushman.payflow.lab;
  */
 
 import com.ayushman.payflow.model.Wallet;
+import com.ayushman.payflow.service.TransferService;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.LockSupport;
 
 public class DeadlockLab {
@@ -97,10 +101,62 @@ public class DeadlockLab {
         System.out.printf("%s finished in %d ms. Total money: %,d (expected 2,000,000)%n", name, tookMs, a.getBalance() + b.getBalance());
     }
 
+    private static long totalOf(List<Wallet> wallets){
+        long total = 0;
+        for (Wallet w : wallets) {
+            total += w.getBalance();
+        }
+        return total;
+    }
+
+    // 20 threads x 10,000 random transfers between 5 wallets. Total money must not change.
+    public static void runStressTest() throws InterruptedException {
+        TransferService service = new TransferService();
+
+        List<Wallet> wallets = new ArrayList<>();
+        for (int i = 0; i < 5; i++){
+            Wallet w = new Wallet("W" + i, "User" + i);
+            w.deposit(100_000);
+            wallets.add(w);
+        }
+        long before = totalOf(wallets);
+
+        AtomicInteger succeeded = new AtomicInteger();
+        AtomicInteger refused = new AtomicInteger();
+        List<Thread> threads = new ArrayList<>();
+        long start = System.nanoTime();
+
+        for (int t = 0; t < 20; t++){
+            Thread thread = new Thread(() -> {
+                ThreadLocalRandom random = ThreadLocalRandom.current();
+                for (int i =0; i < 10_000; i++){
+                    Wallet from = wallets.get(random.nextInt(wallets.size()));
+                    Wallet to = wallets.get(random.nextInt(wallets.size()));
+                    if(from == to){ continue;}
+                    try {
+                        service.transfer(from, to, random.nextInt(1, 1_001));
+                        succeeded.incrementAndGet();
+                    }catch (IllegalStateException e){ refused.incrementAndGet(); }
+                }
+            }, "stress-" + t);
+            threads.add(thread);
+            thread.start();
+        }
+        for (Thread thread : threads){
+            thread.join();
+        }
+        long tookMs = (System.nanoTime() - start) / 1_000_000;
+        System.out.printf("Stress test: %d ms, succeeded=%,d, refused=%,d%n", tookMs, succeeded.get(), refused.get());
+        System.out.printf("Total before=%,d after=%,d %s%n", before, totalOf(wallets), before == totalOf(wallets) ? "OK" : "MONEY LOST!");
+        System.out.println(wallets);
+    }
+
     public static void main(String[] args) throws InterruptedException {
 //        runBothDirections("naive", DeadlockLab::naiveTransfer);
-        runBothDirections("ordered", DeadlockLab::orderedTransfer);
-        runBothDirections("tryLock", DeadlockLab::tryLockTransfer);
+//        runBothDirections("ordered", DeadlockLab::orderedTransfer);
+//        runBothDirections("tryLock", DeadlockLab::tryLockTransfer);
+
+        runStressTest();
     }
 
 }
