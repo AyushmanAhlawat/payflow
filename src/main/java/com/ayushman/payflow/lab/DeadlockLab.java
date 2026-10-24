@@ -11,6 +11,10 @@ package com.ayushman.payflow.lab;
 
 import com.ayushman.payflow.model.Wallet;
 
+import java.util.concurrent.ThreadLocalRandom;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.locks.LockSupport;
+
 public class DeadlockLab {
     private static final int TRANSFERS = 100_000;
 
@@ -25,10 +29,47 @@ public class DeadlockLab {
             to.getLock().lock();
             try{
                 from.withdraw(amountInPaise);
-                to.withdraw(amountInPaise);
+                to.deposit(amountInPaise);
             } finally { to.getLock().unlock(); }
         } finally { from.getLock().unlock(); }
     }
+
+    // FIX 1: always lock the wallet with the smaller id first, whatever the direction.
+    static void orderedTransfer(Wallet from, Wallet to, long amountInPaise) {
+        Wallet first = from.getId().compareTo(to.getId()) < 0 ? from : to;
+        Wallet second = (first == from) ? to : from;
+
+        first.getLock().lock();
+        try{
+            second.getLock().lock();
+            try{
+                from.withdraw(amountInPaise);
+                to.deposit(amountInPaise);
+            } finally { second.getLock().unlock(); }
+        } finally { first.getLock().unlock(); }
+    }
+
+    // FIX 2: take 'from', then TRY 'to' for 1 ms. If it isn't free, let go of 'from' and retry.
+    static void tryLockTransfer(Wallet from, Wallet to, long amountInPaise) {
+        while (true) {
+            from.getLock().lock();
+            try{
+                if (to.getLock().tryLock(1, TimeUnit.MICROSECONDS)) {
+                    try {
+                        from.withdraw(amountInPaise);
+                        to.deposit(amountInPaise);
+                        return;
+                    } finally { to.getLock().unlock(); }
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException("Transfer interrupted", e);
+            }finally { from.getLock().unlock(); }
+            // Didn't get 'to': wait a random 10-100 microseconds, then try again.
+            LockSupport.parkNanos(ThreadLocalRandom.current().nextLong(10_000, 100_000));
+        }
+    }
+
 
     private static void transferLoop(TransferMethod method, Wallet from, Wallet to) {
         for (int i = 1; i <= TRANSFERS; i++) {
@@ -57,7 +98,9 @@ public class DeadlockLab {
     }
 
     public static void main(String[] args) throws InterruptedException {
-        runBothDirections("naive", DeadlockLab::naiveTransfer);
+//        runBothDirections("naive", DeadlockLab::naiveTransfer);
+        runBothDirections("ordered", DeadlockLab::orderedTransfer);
+        runBothDirections("tryLock", DeadlockLab::tryLockTransfer);
     }
 
 }
