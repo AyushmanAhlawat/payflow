@@ -11,9 +11,12 @@ package com.ayushman.payflow.lab;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.LongSupplier;
+
+import com.ayushman.payflow.model.Wallet;
 
 public class RaceConditionLab {
 
@@ -77,9 +80,6 @@ public class RaceConditionLab {
         }
     }
 
-
-
-
     private static void runExperiment(String name, Runnable depositOnePaisa, LongSupplier balance) throws InterruptedException {
         List<Thread> threads = new ArrayList<>();
         long start =  System.nanoTime();
@@ -105,6 +105,33 @@ public class RaceConditionLab {
                 name, EXPECTED, actual, lost, tookMs);
     }
 
+    // 1,000 threads each try to withdraw 1 paise from a wallet holding only 500.
+    private static void runOverdrawExperiment() throws InterruptedException {
+        Wallet wallet = new Wallet("w-1", "Ayushman");
+        wallet.deposit(500);
+        AtomicInteger successes = new AtomicInteger();
+        List<Thread> threads = new ArrayList<>();
+
+        for (int i = 0; i < THREADS; i++) {
+            Thread t = new Thread(() -> {
+                try {
+                    wallet.withdraw(1);
+                    successes.incrementAndGet();
+                } catch (IllegalStateException e) {
+                    // refused: not enough balance - expected for 500 of the threads
+                }
+            });
+            threads.add(t);
+            t.start();
+        }
+        for (Thread t : threads) {
+            t.join();
+        }
+
+        System.out.printf("Overdraw test  start=500 successful=%d final balance=%d%n",
+                successes.get(), wallet.getBalance());
+    }
+
 
     public static void main(String[] args) throws InterruptedException {
         UnsafeWallet unsafe = new UnsafeWallet();
@@ -121,6 +148,11 @@ public class RaceConditionLab {
 
         LockWallet lock = new LockWallet();
         runExperiment("Lock", () -> lock.deposit(1), lock::getBalance);
+
+        Wallet real = new Wallet("w-real", "Ayushman");
+        runExperiment("Real Wallet", () -> real.deposit(1), real::getBalance);
+
+        runOverdrawExperiment();
     }
 
 }

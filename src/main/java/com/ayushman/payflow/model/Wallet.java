@@ -7,13 +7,17 @@ package com.ayushman.payflow.model;
  * Who calls it  : Labs (Session 2), TransferService (3), WalletService/WalletRepository (4).
  * Data it holds : One wallet's own values. NOT a list of wallets (that's WalletRepository).
  *                 Balance is in paise (long). Lost on restart.
- * Thread-safety : NOT safe yet, on purpose. Session 2 adds a ReentrantLock.
+ * Thread-safety : Safe. A ReentrantLock guards balance; withdraw checks AND subtracts
+ *                 inside the same lock, so two threads can't both spend the same money.
  */
+
+import java.util.concurrent.locks.ReentrantLock;
 
 public class Wallet {
     private final String id;
     private final String ownerName;
     private long balance;
+    private final ReentrantLock lock = new ReentrantLock(); // one lock per wallet
 
     public Wallet(String id, String ownerName){
         this.id = id;
@@ -28,23 +32,29 @@ public class Wallet {
         return ownerName;
     }
     public long getBalance(){
-        return balance;
+        lock.lock();
+        try{ return balance;} finally { lock.unlock(); }
     }
 
     public void deposit(long amountInPaise){
         if(amountInPaise <= 0){ throw new IllegalArgumentException("Deposit amount must be positive");}
-        balance += amountInPaise;
+        lock.lock();
+        try{ balance += amountInPaise;} finally { lock.unlock(); }
     }
 
     /* We add the balance check with lock later because a check without a lock is itself a thread bug.
      * Two threads can both see “₹100 available” and both withdraw ₹100.
      */
     public void withdraw(long amountInPaise){
-        if(amountInPaise <= 0 & amountInPaise > balance){  throw new IllegalArgumentException("Withdraw amount should be positive and Less than Available Balance");}
-        balance -= amountInPaise;
+        if(amountInPaise <= 0){  throw new IllegalArgumentException("Withdraw amount should be positive and Less than Available Balance");}
+        lock.lock();
+        try{
+            if (balance < amountInPaise) { throw new IllegalStateException("Insufficient Balance: " + balance);}
+                balance -= amountInPaise;
+            } finally { lock.unlock(); }
     }
 
     public String toString(){
-        return "Wallet{id='" + id + "', owner='" + ownerName + "', balance=" + balance + " paise}";
+        return "Wallet{id='" + id + "', owner='" + ownerName + "', balance=" + getBalance() + " paise}";
     }
 }
