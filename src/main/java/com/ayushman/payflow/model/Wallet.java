@@ -36,6 +36,11 @@ public class Wallet {
         try{ return balance;} finally { lock.unlock(); }
     }
 
+    // Lets TransferService lock two wallets together for one transfer.
+    public ReentrantLock getLock(){
+        return lock;
+    }
+
     public void deposit(long amountInPaise){
         if(amountInPaise <= 0){ throw new IllegalArgumentException("Deposit amount must be positive");}
         lock.lock();
