@@ -11,6 +11,8 @@ package com.ayushman.payflow.model;
  *                 inside the same lock, so two threads can't both spend the same money.
  */
 
+import com.ayushman.payflow.exception.InsufficientBalanceException;
+
 import java.util.concurrent.locks.ReentrantLock;
 
 public class Wallet {
@@ -41,21 +43,24 @@ public class Wallet {
         return lock;
     }
 
-    public void deposit(long amountInPaise){
+    public long deposit(long amountInPaise){
         if(amountInPaise <= 0){ throw new IllegalArgumentException("Deposit amount must be positive");}
         lock.lock();
-        try{ balance += amountInPaise;} finally { lock.unlock(); }
+        try{ balance += amountInPaise;
+            return balance;
+        } finally { lock.unlock(); }
     }
 
     /* We add the balance check with lock later because a check without a lock is itself a thread bug.
      * Two threads can both see “₹100 available” and both withdraw ₹100.
      */
-    public void withdraw(long amountInPaise){
+    public long withdraw(long amountInPaise){
         if(amountInPaise <= 0){  throw new IllegalArgumentException("Withdraw amount should be positive and Less than Available Balance");}
         lock.lock();
         try{
-            if (balance < amountInPaise) { throw new IllegalStateException("Insufficient Balance: " + balance);}
+            if (balance < amountInPaise) { throw new InsufficientBalanceException(id, balance, amountInPaise);}
                 balance -= amountInPaise;
+                return balance;
             } finally { lock.unlock(); }
     }
 
