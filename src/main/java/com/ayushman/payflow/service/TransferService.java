@@ -4,16 +4,37 @@ package com.ayushman.payflow.service;
  * FILE SUMMARY: TransferService
  * Why it exists : The one real place money moves between two wallets.
  * What it does  : Validates, locks both wallets in id order, withdraws then deposits.
- * Who calls it  : DeadlockLab stress test; TransferController via Spring.
- * Data it holds : NOTHING. No fields. Works on wallets it is given.
+ * Who calls it  : TransferController (Spring). DeadlockLab stress test. Uses WalletRepository.
+ * Data it holds : NOTHING. Only a reference to the repository, set once at startup.
  * Thread-safety : Safe. Stateless, and locks are always taken in id order (no deadlock).
  */
 
+import com.ayushman.payflow.dto.TransferResponse;
+import com.ayushman.payflow.exception.WalletNotFoundException;
 import com.ayushman.payflow.model.Wallet;
+import com.ayushman.payflow.repository.WalletRepository;
+import org.springframework.stereotype.Service;
 
+@Service
 public class TransferService {
 
-    public void transfer(Wallet from, Wallet to, long amountInPaise) {
+    private final WalletRepository walletRepository;
+
+    public TransferService(WalletRepository walletRepository) {
+        this.walletRepository = walletRepository;
+    }
+
+    // Used by the API: look up both wallets by id, then do the locked transfer.
+    public TransferResponse transfer(String fromWalletId, String toWalletId, long amountInPaise) {
+        if (fromWalletId == null || toWalletId == null) {
+            throw new IllegalArgumentException("Both wallet ids are required");
+        }
+        Wallet from = findWallet(fromWalletId);
+        Wallet to = findWallet(toWalletId);
+        return transfer(from, to, amountInPaise);
+    }
+
+    public TransferResponse transfer(Wallet from, Wallet to, long amountInPaise) {
         if (from == null || to == null) {
             throw new IllegalArgumentException("Both wallets are required");
         }
@@ -32,11 +53,18 @@ public class TransferService {
         try{
             second.getLock().lock();
             try{
-                from.withdraw(amountInPaise);
-                to.deposit(amountInPaise);
+                long fromBalance = from.withdraw(amountInPaise); // throws if too low: nothing has moved yet
+                long toBalance = to.deposit(amountInPaise);
+                return new TransferResponse(from.getId(), to.getId(),
+                        amountInPaise, fromBalance, toBalance);
             } finally { second.getLock().unlock(); }
         } finally { first.getLock().unlock(); }
 
+    }
+
+    private Wallet findWallet(String walletId) {
+        return walletRepository.findById(walletId)
+                .orElseThrow(() -> new WalletNotFoundException(walletId));
     }
 
 }
