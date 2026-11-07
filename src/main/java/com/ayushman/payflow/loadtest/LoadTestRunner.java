@@ -1,0 +1,103 @@
+package com.ayushman.payflow.loadtest;
+
+/*
+ * FILE SUMMARY: LoadTestRunner
+ * Why it exists : Proves the race over real HTTP and measures the server under load.
+ * What it does  : 1,000 deposits of 1 paise via a 50-thread pool, released by a gate;
+ *                 compares the balance before and after.
+ * Who calls it  : Nobody. Run main() WHILE PayflowApplication is running. HTTP only.
+ * Data it holds : Nothing beyond main(). Counters for one run only.
+ * Thread-safety : Shared HttpClient, JSON mapper and latch are thread-safe;
+ *                 each task's result lives in its own Future.
+ */
+
+import com.ayushman.payflow.dto.DemoBalancesResponse;
+import tools.jackson.databind.json.JsonMapper;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.*;
+import java.util.function.ToLongFunction;
+
+public class LoadTestRunner {
+    private static final String BASE_URL = "http://localhost:8080";
+    private static final int REQUESTS = 1000;
+    private static final int POOL_SIZE = 50;
+
+    // Thread-safe and meant to be shared: one client for all 50 threads.
+    private static final HttpClient CLIENT = HttpClient.newBuilder()
+            .version(HttpClient.Version.HTTP_1_1)
+            .build();
+
+    // Reads JSON into Java objects. Also thread-safe once built.
+    private static final JsonMapper JSON = JsonMapper.builder().build();
+
+    private static DemoBalancesResponse readBalances() throws Exception {
+        HttpRequest request = HttpRequest.newBuilder(URI.create(BASE_URL + "/demo/balances"))
+                .GET()
+                .build();
+
+        HttpResponse<String> response = CLIENT.send(request, HttpResponse.BodyHandlers.ofString());
+        return JSON.readValue(response.body(), DemoBalancesResponse.class);
+    }
+
+    private static void runLoadTest(String name, String path, ToLongFunction<DemoBalancesResponse> balanceOf) throws Exception{
+        long before = balanceOf.applyAsLong(readBalances());
+        CountDownLatch startGate = new CountDownLatch(1);
+        HttpRequest deposit = HttpRequest.newBuilder(URI.create(BASE_URL + path))
+                .header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString("{\"amountInPaise\":1}"))
+                .build();
+
+
+        List<Future<Integer>> results = new ArrayList<>();
+        long start;
+
+        try(ExecutorService pool = Executors.newFixedThreadPool(POOL_SIZE)){
+            for(int i=0; i<REQUESTS; i++){
+                results.add(pool.submit(() -> {
+                    startGate.await();
+                    HttpResponse<Void> response = CLIENT.send(deposit, HttpResponse.BodyHandlers.discarding());
+                    return response.statusCode();
+                }));
+            }
+
+            start = System.nanoTime();
+            startGate.countDown(); // open the gate: 50 requests fire at once
+        }
+
+        long tookMs = (System.nanoTime() - start) / 1_000_000;
+
+        int ok = 0;
+        int failed = 0;
+        for (Future<Integer> f : results) {
+            try {
+                if (f.get() == 200) {
+                    ok++;
+                } else {
+                    failed++;
+                }
+            } catch (ExecutionException e) {
+                failed++; // the task threw: server down, connection refused...
+            }
+        }
+
+        long after = balanceOf.applyAsLong(readBalances());
+        long gained = after - before;
+        long lost = ok - gained; // each successful request should add exactly 1 paise
+
+        System.out.printf("%-7s requests=%,d ok=%,d failed=%,d gained=%,d lost=%,d time=%,d ms (%.0f req/s)%n",
+                name, REQUESTS, ok, failed, gained, lost, tookMs, REQUESTS * 1000.0 / tookMs);
+    }
+
+
+    public static void main(String[] args) throws Exception {
+        runLoadTest("SAFE", "/demo/safe/deposit", DemoBalancesResponse::safeBalanceInPaise);
+        runLoadTest("UNSAFE", "/demo/unsafe/deposit", DemoBalancesResponse::unsafeBalanceInPaise);
+
+    }
+
+}
