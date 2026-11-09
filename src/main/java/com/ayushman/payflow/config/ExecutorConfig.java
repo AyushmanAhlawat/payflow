@@ -5,12 +5,14 @@ import org.springframework.context.annotation.Configuration;
 
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ThreadFactory;
 
 /*
  * FILE SUMMARY: ExecutorConfig
  * Why it exists : Defines thread pools ONCE, instead of each class creating its own threads.
- * What it does  : Creates a fixed pool of 4 threads: webhook-worker-1 .. webhook-worker-4.
+ * What it does  : Creates the webhook pools: 4 workers (webhook-worker-1..4) and
+ *                 1 retry scheduler (webhook-retry-1).
  * Who calls it  : Spring, once at startup. The pool is injected into WebhookDispatcher.
  * Data it holds : NOTHING. It only creates pools.
  * Thread-safety : ExecutorService is built for use by many threads.
@@ -26,6 +28,14 @@ public class ExecutorConfig {
                 .name("webhook-worker-", 1)  // webhook-worker-1, -2, -3, -4
                 .factory();
         return Executors.newFixedThreadPool(WEBHOOK_WORKERS, namedThreads);
+    }
+
+    @Bean(name = "webhookRetryExecutor", destroyMethod = "")
+    public ScheduledExecutorService webhookRetryExecutor() {
+        ThreadFactory namedThreads = Thread.ofPlatform()
+                .name("webhook-retry-", 1)   // webhook-retry-1
+                .factory();
+        return Executors.newScheduledThreadPool(1, namedThreads);
     }
 
 }

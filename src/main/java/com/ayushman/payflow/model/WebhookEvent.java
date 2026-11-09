@@ -36,4 +36,11 @@ public record WebhookEvent(
         );
     }
 
+    // Records can't change: a retry is a COPY with attempt + 1. Same eventId, so the
+    // merchant can recognise it as the same event.
+    public WebhookEvent withNextAttempt() {
+        return new WebhookEvent(eventId, eventType, fromWalletId, toWalletId,
+                amountInPaise, createdAt, attempt + 1);
+    }
+
 }
