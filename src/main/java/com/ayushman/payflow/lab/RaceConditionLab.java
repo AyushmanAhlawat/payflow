@@ -3,14 +3,18 @@ package com.ayushman.payflow.lab;
 /*
  * FILE SUMMARY: RaceConditionLab
  * Why it exists : Runs one experiment against every wallet version; shows lost money and time.
- * What it does  : 1,000 threads x 1,000 deposits of 1 paise. Expected 10,00,000.
+ * What it does  : (1) 1,000 threads x deposits of 1 paise on every wallet version.
+ *                 (2) 1,000 threads adding to ArrayList vs thread-safe lists.
  * Who calls it  : Nobody. Run main(). Uses UnsafeWallet now, fixed wallets later.
  * Data it holds : Nothing beyond main(). The thread list is local to the main thread only.
  * Thread-safety : The lab is safe; it tests whether the WALLETS are.
  */
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
+import java.util.Objects;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.ReentrantLock;
@@ -23,6 +27,7 @@ public class RaceConditionLab {
     private static final int THREADS = 1000;
     private static final int DEPOSITS_PER_THREAD = 1000;
     private static final long EXPECTED = (long) THREADS * DEPOSITS_PER_THREAD;
+    private static final int ITEMS_PER_THREAD = 50; // 1,000 threads x 50 = 50,000 items
 
     // FIX 1: synchronized - only one thread at a time inside these methods
     static class SynchronizesWallet{
@@ -132,6 +137,39 @@ public class RaceConditionLab {
                 successes.get(), wallet.getBalance());
     }
 
+    // 1,000 threads each add 50 items to the SAME list. Expected size: 50,000.
+    private static void runListExperiment(String name, List<Integer> list)
+            throws InterruptedException {
+        long expected = (long) THREADS * ITEMS_PER_THREAD;
+        AtomicInteger crashedThreads = new AtomicInteger();
+        List<Thread> threads = new ArrayList<>();
+
+        long start = System.nanoTime();
+        for (int i = 0; i < THREADS; i++) {
+            Thread t = new Thread(() -> {
+                try {
+                    for (int j = 0; j < ITEMS_PER_THREAD; j++) {
+                        list.add(j);
+                    }
+                } catch (RuntimeException e) {
+                    crashedThreads.incrementAndGet(); // e.g. ArrayIndexOutOfBoundsException
+                }
+            });
+            threads.add(t);
+            t.start();
+        }
+        for (Thread t : threads) {
+            t.join();
+        }
+        long tookMs = (System.nanoTime() - start) / 1_000_000;
+
+        long nulls = list.stream().filter(Objects::isNull).count();
+
+        System.out.printf("%-22s expected=%,d size=%,d missing=%,d nulls=%,d crashedThreads=%d time=%d ms%n",
+                name, expected, list.size(), expected - list.size(), nulls,
+                crashedThreads.get(), tookMs);
+    }
+
 
     public static void main(String[] args) throws InterruptedException {
         UnsafeWallet unsafe = new UnsafeWallet();
@@ -153,6 +191,11 @@ public class RaceConditionLab {
         runExperiment("Real Wallet", () -> real.deposit(1), real::getBalance);
 
         runOverdrawExperiment();
+
+        System.out.println("--- List experiment ---");
+        runListExperiment("ArrayList", new ArrayList<>());
+        runListExperiment("synchronizedList", Collections.synchronizedList(new ArrayList<>()));
+        runListExperiment("CopyOnWriteArrayList", new CopyOnWriteArrayList<>());
     }
 
 }
