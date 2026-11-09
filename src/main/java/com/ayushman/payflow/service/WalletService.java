@@ -2,10 +2,14 @@ package com.ayushman.payflow.service;
 
 import com.ayushman.payflow.dto.WalletResponse;
 import com.ayushman.payflow.exception.WalletNotFoundException;
+import com.ayushman.payflow.model.Transaction;
+import com.ayushman.payflow.model.TransactionType;
 import com.ayushman.payflow.model.Wallet;
+import com.ayushman.payflow.repository.TransactionRepository;
 import com.ayushman.payflow.repository.WalletRepository;
 import org.springframework.stereotype.Service;
 
+import java.util.List;
 import java.util.UUID;
 
 /*
@@ -20,9 +24,11 @@ import java.util.UUID;
 public class WalletService {
 
     private final WalletRepository walletRepository;
+    private final TransactionRepository transactionRepository;
 
-    public WalletService(WalletRepository walletRepository) {
+    public WalletService(WalletRepository walletRepository,  TransactionRepository transactionRepository) {
         this.walletRepository = walletRepository;
+        this.transactionRepository = transactionRepository;
     }
 
     private Wallet findWallet(String walletId) {
@@ -45,14 +51,33 @@ public class WalletService {
 
     public WalletResponse deposit(String walletId, long amountInPaise) {
         Wallet wallet = findWallet(walletId);
-        long newBalance = wallet.deposit(amountInPaise);
-        return WalletResponse.from(wallet, newBalance);
+        wallet.getLock().lock(); // hold the lock until the history is saved too
+        try {
+            long newBalance = wallet.deposit(amountInPaise); // locks again: reentrant
+            transactionRepository.save(
+                    Transaction.of(walletId, TransactionType.DEPOSIT, amountInPaise, newBalance));
+            return WalletResponse.from(wallet, newBalance);
+        } finally {
+            wallet.getLock().unlock();
+        }
     }
 
     public WalletResponse withdraw(String walletId, long amountInPaise) {
         Wallet wallet = findWallet(walletId);
-        long newBalance = wallet.withdraw(amountInPaise);
-        return WalletResponse.from(wallet, newBalance);
+        wallet.getLock().lock();
+        try {
+            long newBalance = wallet.withdraw(amountInPaise); // throws 409 if too low
+            transactionRepository.save(
+                    Transaction.of(walletId, TransactionType.WITHDRAW, amountInPaise, newBalance));
+            return WalletResponse.from(wallet, newBalance);
+        } finally {
+            wallet.getLock().unlock();
+        }
+    }
+
+    public List<Transaction> getTransactions(String walletId) {
+        findWallet(walletId); // 404 if the wallet doesn't exist
+        return transactionRepository.findByWalletId(walletId);
     }
 
 }

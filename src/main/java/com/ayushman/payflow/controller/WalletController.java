@@ -3,12 +3,15 @@ package com.ayushman.payflow.controller;
 import com.ayushman.payflow.dto.AmountRequest;
 import com.ayushman.payflow.dto.CreateWalletRequest;
 import com.ayushman.payflow.dto.WalletResponse;
+import com.ayushman.payflow.model.Transaction;
 import com.ayushman.payflow.service.WalletService;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import java.util.List;
 
 /*
  * FILE SUMMARY: WalletController
@@ -56,6 +59,11 @@ public class WalletController {
     public WalletResponse withdraw(@PathVariable String id, @RequestBody AmountRequest request) {
         log.info("Withdraw {} paise from {}", request.amountInPaise(), id);
         return walletService.withdraw(id, request.amountInPaise());
+    }
+
+    @GetMapping("/{id}/transactions")
+    public List<Transaction> getTransactions(@PathVariable String id) {
+        return walletService.getTransactions(id);
     }
 
 }

@@ -10,6 +10,7 @@ package com.ayushman.payflow.lab;
  */
 
 import com.ayushman.payflow.model.Wallet;
+import com.ayushman.payflow.repository.TransactionRepository;
 import com.ayushman.payflow.repository.WalletRepository;
 import com.ayushman.payflow.service.TransferService;
 
@@ -112,7 +113,7 @@ public class DeadlockLab {
 
     // 20 threads x 10,000 random transfers between 5 wallets. Total money must not change.
     public static void runStressTest() throws InterruptedException {
-        TransferService service = new TransferService(new WalletRepository());
+        TransferService service = new TransferService(new WalletRepository(), new TransactionRepository());
 
         List<Wallet> wallets = new ArrayList<>();
         for (int i = 0; i < 5; i++){
@@ -153,7 +154,7 @@ public class DeadlockLab {
     }
 
     public static void main(String[] args) throws InterruptedException {
-        runBothDirections("naive", DeadlockLab::naiveTransfer);
+//        runBothDirections("naive", DeadlockLab::naiveTransfer);
         runBothDirections("ordered", DeadlockLab::orderedTransfer);
         runBothDirections("tryLock", DeadlockLab::tryLockTransfer);
 
