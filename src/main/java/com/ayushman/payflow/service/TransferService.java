@@ -14,8 +14,10 @@ import com.ayushman.payflow.exception.WalletNotFoundException;
 import com.ayushman.payflow.model.Transaction;
 import com.ayushman.payflow.model.TransactionType;
 import com.ayushman.payflow.model.Wallet;
+import com.ayushman.payflow.model.WebhookEvent;
 import com.ayushman.payflow.repository.TransactionRepository;
 import com.ayushman.payflow.repository.WalletRepository;
+import com.ayushman.payflow.repository.WebhookQueue;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -23,10 +25,12 @@ public class TransferService {
 
     private final WalletRepository walletRepository;
     private final TransactionRepository transactionRepository;
+    private final WebhookQueue webhookQueue;
 
-    public TransferService(WalletRepository walletRepository,  TransactionRepository transactionRepository) {
+    public TransferService(WalletRepository walletRepository,  TransactionRepository transactionRepository,  WebhookQueue webhookQueue) {
         this.transactionRepository = transactionRepository;
         this.walletRepository = walletRepository;
+        this.webhookQueue = webhookQueue;
     }
 
     // Used by the API: look up both wallets by id, then do the locked transfer.
@@ -36,7 +40,9 @@ public class TransferService {
         }
         Wallet from = findWallet(fromWalletId);
         Wallet to = findWallet(toWalletId);
-        return transfer(from, to, amountInPaise);
+        TransferResponse result = transfer(from, to, amountInPaise); // locks taken AND released inside
+        webhookQueue.offer(WebhookEvent.transferCompleted(result));   // after the locks: no wallet waits
+        return result;
     }
 
     public TransferResponse transfer(Wallet from, Wallet to, long amountInPaise) {
