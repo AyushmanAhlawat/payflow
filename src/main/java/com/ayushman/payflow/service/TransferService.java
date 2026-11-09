@@ -11,7 +11,10 @@ package com.ayushman.payflow.service;
 
 import com.ayushman.payflow.dto.TransferResponse;
 import com.ayushman.payflow.exception.WalletNotFoundException;
+import com.ayushman.payflow.model.Transaction;
+import com.ayushman.payflow.model.TransactionType;
 import com.ayushman.payflow.model.Wallet;
+import com.ayushman.payflow.repository.TransactionRepository;
 import com.ayushman.payflow.repository.WalletRepository;
 import org.springframework.stereotype.Service;
 
@@ -19,8 +22,10 @@ import org.springframework.stereotype.Service;
 public class TransferService {
 
     private final WalletRepository walletRepository;
+    private final TransactionRepository transactionRepository;
 
-    public TransferService(WalletRepository walletRepository) {
+    public TransferService(WalletRepository walletRepository,  TransactionRepository transactionRepository) {
+        this.transactionRepository = transactionRepository;
         this.walletRepository = walletRepository;
     }
 
@@ -53,8 +58,14 @@ public class TransferService {
         try{
             second.getLock().lock();
             try{
-                long fromBalance = from.withdraw(amountInPaise); // throws if too low: nothing has moved yet
+                long fromBalance = from.withdraw(amountInPaise);
                 long toBalance = to.deposit(amountInPaise);
+
+                transactionRepository.save(Transaction.of(
+                        from.getId(), TransactionType.TRANSFER_OUT, amountInPaise, fromBalance));
+                transactionRepository.save(Transaction.of(
+                        to.getId(), TransactionType.TRANSFER_IN, amountInPaise, toBalance));
+
                 return new TransferResponse(from.getId(), to.getId(),
                         amountInPaise, fromBalance, toBalance);
             } finally { second.getLock().unlock(); }
