@@ -9,5 +9,6 @@ package com.ayushman.payflow.model;
  */
 public enum WebhookStatus {
     DELIVERED, // the merchant answered 2xx
-    FAILED     // the merchant failed or couldn't be reached (Session 8 retries these)
+    RETRYING,    // failed, a retry is scheduled
+    DEAD_LETTER  // failed every attempt (or couldn't be re-queued): needs a human
 }

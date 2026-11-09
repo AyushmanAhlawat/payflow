@@ -28,8 +28,9 @@ import java.util.concurrent.TimeUnit;
  * FILE SUMMARY: WebhookDispatcher
  * Why it exists : Runs the 4 webhook workers (the consumers).
  * What it does  : Starts 4 loops when the app is ready; each takes an event, POSTs it
- *                 to the merchant, and records DELIVERED or FAILED.
- * Who calls it  : Spring starts it. Uses WebhookQueue, WebhookRepository, webhookExecutor.
+ *                 to the merchant, and records DELIVERED or hands failures to WebhookRetryScheduler.
+ * Who calls it  : Spring starts it. Uses WebhookQueue, WebhookRepository, webhookExecutor,
+ *                 WebhookRetryScheduler.
  * Data it holds : NOTHING. HttpClient and JsonMapper are shared tools, not data.
  * Thread-safety : Workers share only thread-safe objects.
  */
@@ -39,6 +40,7 @@ public class WebhookDispatcher {
     private static final Logger log = LoggerFactory.getLogger(WebhookDispatcher.class);
     private static final String MERCHANT_URL = "http://localhost:8080/fake-merchant/webhooks";
 
+
     // Poison pill: a worker that takes THIS exact object stops looping.
     private static final WebhookEvent STOP =
             new WebhookEvent("STOP", "internal.stop", null, null, 0, Instant.EPOCH, 0);
@@ -46,6 +48,7 @@ public class WebhookDispatcher {
     private final WebhookQueue webhookQueue;
     private final WebhookRepository webhookRepository;
     private final ExecutorService webhookExecutor;
+    private final WebhookRetryScheduler retryScheduler;
 
     // Shared tools: created once, thread-safe, used by all 4 workers.
     private final HttpClient httpClient = HttpClient.newBuilder()
@@ -56,10 +59,11 @@ public class WebhookDispatcher {
 
     public WebhookDispatcher(WebhookQueue webhookQueue,
                              WebhookRepository webhookRepository,
-                             @Qualifier("webhookExecutor") ExecutorService webhookExecutor) {
+                             @Qualifier("webhookExecutor") ExecutorService webhookExecutor, WebhookRetryScheduler retryScheduler) {
         this.webhookQueue = webhookQueue;
         this.webhookRepository = webhookRepository;
         this.webhookExecutor = webhookExecutor;
+        this.retryScheduler = retryScheduler;
     }
 
     @EventListener(ApplicationReadyEvent.class)
@@ -99,11 +103,11 @@ public class WebhookDispatcher {
                 webhookRepository.record(event.eventId(), WebhookStatus.DELIVERED);
                 log.info("Delivered {} (attempt {})", event.eventId(), event.attempt());
             } else {
-                webhookRepository.record(event.eventId(), WebhookStatus.FAILED);
-                log.warn("Merchant returned {} for {}", status, event.eventId());
+                retryScheduler.retryOrGiveUp(event);
+                log.warn("Merchant returned {} for {} (attempt {})", status, event.eventId(), event.attempt());
             }
         } catch (IOException e) {
-            webhookRepository.record(event.eventId(), WebhookStatus.FAILED);
+            retryScheduler.retryOrGiveUp(event);
             log.warn("Could not reach merchant for {}: {}", event.eventId(), e.getMessage());
         }
     }
