@@ -160,11 +160,61 @@ public class LoadTestRunner {
                 name, REQUESTS, ok, failed, gained, lost, tookMs, REQUESTS * 1000.0 / tookMs);
     }
 
+    // 50 transfers from ONE sender, released at the same instant. Max 5 may run at once.
+    private static void runRateLimitTest() throws Exception {
+        String a = JSON.readValue(postJson("/wallets", "{\"ownerName\":\"Busy\"}"),
+                WalletResponse.class).id();
+        String b = JSON.readValue(postJson("/wallets", "{\"ownerName\":\"Receiver\"}"),
+                WalletResponse.class).id();
+        postJson("/wallets/" + a + "/deposit", "{\"amountInPaise\":100000}");
+
+        int requests = 50;
+        HttpRequest transfer = HttpRequest.newBuilder(URI.create(BASE_URL + "/transfers"))
+                .header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString(
+                        "{\"fromWalletId\":\"" + a + "\",\"toWalletId\":\"" + b + "\",\"amountInPaise\":100}"))
+                .build();
+
+        CountDownLatch gate = new CountDownLatch(1);
+        List<Future<Integer>> results = new ArrayList<>();
+        try (ExecutorService pool = Executors.newFixedThreadPool(requests)) {
+            for (int i = 0; i < requests; i++) {
+                results.add(pool.submit(() -> {
+                    gate.await();
+                    return CLIENT.send(transfer, HttpResponse.BodyHandlers.discarding()).statusCode();
+                }));
+            }
+            gate.countDown();
+        }
+
+        int ok = 0;
+        int tooMany = 0;
+        int other = 0;
+        for (Future<Integer> f : results) {
+            try {
+                int status = f.get();
+                if (status == 200) {
+                    ok++;
+                } else if (status == 429) {
+                    tooMany++;
+                } else {
+                    other++;
+                }
+            } catch (ExecutionException e) {
+                other++;
+            }
+        }
+        System.out.printf("RATE LIMIT 50 at once from one wallet: ok=%d, 429=%d, other=%d%n",
+                ok, tooMany, other);
+    }
+
 
     public static void main(String[] args) throws Exception {
         runLoadTest("SAFE", "/demo/safe/deposit", DemoBalancesResponse::safeBalanceInPaise);
         runLoadTest("UNSAFE", "/demo/unsafe/deposit", DemoBalancesResponse::unsafeBalanceInPaise);
-        runIdempotencyTest();
+//        runIdempotencyTest();
+
+//        runRateLimitTest();
 
     }
 
