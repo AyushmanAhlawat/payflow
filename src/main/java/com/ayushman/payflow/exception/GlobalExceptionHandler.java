@@ -47,6 +47,16 @@ public class GlobalExceptionHandler {
         return build(HttpStatus.BAD_REQUEST, ex.getMessage(), request);
     }
 
+    @ExceptionHandler(TooManyRequestsException.class)
+    public ResponseEntity<ApiError> handleTooMany(TooManyRequestsException ex,
+                                                  HttpServletRequest request) {
+        log.warn("{} -> 429: {}", request.getRequestURI(), ex.getMessage());
+        ApiError body = build(HttpStatus.TOO_MANY_REQUESTS, ex.getMessage(), request).getBody();
+        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                .header("Retry-After", "1")   // tells the client: try again in 1 second
+                .body(body);
+    }
+
     @ExceptionHandler(HttpMessageNotReadableException.class)
     public ResponseEntity<ApiError> handleBadJson(HttpMessageNotReadableException ex,
                                                   HttpServletRequest request) {

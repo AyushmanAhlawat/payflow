@@ -48,4 +48,14 @@ public class ExecutorConfig {
         return Executors.newFixedThreadPool(DASHBOARD_THREADS, namedThreads);
     }
 
+    public static final int SETTLEMENT_THREADS = Runtime.getRuntime().availableProcessors();
+
+    @Bean(name = "settlementExecutor")
+    public ExecutorService settlementExecutor() {
+        ThreadFactory namedThreads = Thread.ofPlatform()
+                .name("settlement-", 1)
+                .factory();
+        return Executors.newFixedThreadPool(SETTLEMENT_THREADS, namedThreads);
+    }
+
 }
