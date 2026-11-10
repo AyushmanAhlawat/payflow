@@ -210,11 +210,11 @@ public class LoadTestRunner {
 
 
     public static void main(String[] args) throws Exception {
-//        runLoadTest("SAFE", "/demo/safe/deposit", DemoBalancesResponse::safeBalanceInPaise);
-//        runLoadTest("UNSAFE", "/demo/unsafe/deposit", DemoBalancesResponse::unsafeBalanceInPaise);
+        runLoadTest("SAFE", "/demo/safe/deposit", DemoBalancesResponse::safeBalanceInPaise);
+        runLoadTest("UNSAFE", "/demo/unsafe/deposit", DemoBalancesResponse::unsafeBalanceInPaise);
 //        runIdempotencyTest();
 
-        runRateLimitTest();
+//        runRateLimitTest();
 
     }
 
