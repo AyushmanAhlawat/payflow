@@ -38,4 +38,14 @@ public class ExecutorConfig {
         return Executors.newScheduledThreadPool(1, namedThreads);
     }
 
+    public static final int DASHBOARD_THREADS = 30;
+
+    @Bean(name = "dashboardExecutor")
+    public ExecutorService dashboardExecutor() {
+        ThreadFactory namedThreads = Thread.ofPlatform()
+                .name("dashboard-", 1)   // dashboard-1, dashboard-2 ...
+                .factory();
+        return Executors.newFixedThreadPool(DASHBOARD_THREADS, namedThreads);
+    }
+
 }
