@@ -38,6 +38,7 @@ public class TransferService {
         if (fromWalletId == null || toWalletId == null) {
             throw new IllegalArgumentException("Both wallet ids are required");
         }
+        NetworkDelay.simulate(200); // fake fraud check (200 ms), done OUTSIDE any wallet lock
         Wallet from = findWallet(fromWalletId);
         Wallet to = findWallet(toWalletId);
         TransferResponse result = transfer(from, to, amountInPaise); // locks taken AND released inside

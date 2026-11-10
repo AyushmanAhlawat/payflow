@@ -43,4 +43,15 @@ public class TransactionRepository {
         }
     }
 
+    // A snapshot of every transaction from every wallet.
+    public List<Transaction> findAll() {
+        List<Transaction> all = new ArrayList<>();
+        for (List<Transaction> history : historyByWallet.values()) {
+            synchronized (history) { // same rule as findByWalletId: lock the list while copying it
+                all.addAll(history);
+            }
+        }
+        return all;
+    }
+
 }
